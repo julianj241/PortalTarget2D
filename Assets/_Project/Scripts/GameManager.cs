@@ -74,11 +74,39 @@ public class GameManager : MonoBehaviour
 
     IEnumerator RunScene()
     {
-        var spawner = FindObjectOfType<TargetSpawner>(); for (int i = 0; i < wavesPerScene; i++) { waveIndex = i + 1; UpdateUI(); yield return spawner.RunWave(i); spawner.interval = Mathf.Max(0.25f, spawner.interval * (1f - spawnAccelPerWave)); }
-        // After waves, wait a moment then show portal if scene expects it OR auto‑portal via a prefab placed in scene.
-        yield return new WaitForSeconds(0.4f); // tiny beat so the end feels clear
-        RevealPortal();
+        var spawner = FindObjectOfType<TargetSpawner>();
 
+        // If no spawner or no waves, just reveal the portal and bail
+        if (spawner == null || spawner.waves == null || spawner.waves.Count == 0)
+        {
+            Debug.LogWarning("[GM] No spawner or no waves in this scene; revealing portal.");
+            yield return new WaitForSecondsRealtime(0.2f);
+            yield return new WaitForSecondsRealtime(0.4f);
+            RevealPortal();
+            yield break;
+        }
+
+        int wavesThisScene = Mathf.Min(wavesPerScene, spawner.waves.Count);
+        Debug.Log($"[GM] {SceneManager.GetActiveScene().name}: Running {wavesThisScene} wave(s) " +
+                  $"(wavesPerScene={wavesPerScene}, spawner.waves.Count={spawner.waves.Count})");
+
+        for (int i = 0; i < wavesThisScene; i++)
+        {
+            waveIndex = i + 1;
+            UpdateUI();
+            Debug.Log($"[GM] Starting Wave {waveIndex}");
+            yield return spawner.RunWave(i);
+
+            // Optional gentle acceleration across waves if you still want it:
+            if (spawner.interval > 0f)
+                spawner.interval = Mathf.Max(0.05f, spawner.interval * (1f - spawnAccelPerWave));
+
+            Debug.Log($"[GM] Finished Wave {waveIndex}. ActiveTargets={ActiveTargets}");
+        }
+
+        // All waves completed for this scene → reveal portal
+        yield return new WaitForSecondsRealtime(0.4f);
+        RevealPortal();
     }
 
 

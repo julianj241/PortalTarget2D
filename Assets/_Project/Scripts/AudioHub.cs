@@ -16,6 +16,17 @@ public class AudioHub : MonoBehaviour
     public AudioClip hazard;
     public AudioClip portal;
 
+    void Start()
+    {
+        // Auto-start BGM if a clip is assigned
+        if (bgm != null && bgm.clip != null && !bgm.isPlaying)
+        {
+            bgm.loop = true;
+            bgm.Play();
+        }
+    }
+
+
     void Awake()
     {
         if (I != null) { Destroy(gameObject); return; }
@@ -23,7 +34,14 @@ public class AudioHub : MonoBehaviour
         DontDestroyOnLoad(gameObject);
     }
 
-    public static void PlayShoot()  => I?.sfx?.PlayOneShot(I.shoot);
+
+    public static void PlayShoot()
+    {
+        if (I?.sfx != null && I.shoot != null)
+            I.sfx.PlayOneShot(I.shoot, 0.1f);  // 0.4 = 40% volume
+    }
+
+    
     public static void PlayHit()    => I?.sfx?.PlayOneShot(I.hit);
     public static void PlayMiss()   => I?.sfx?.PlayOneShot(I.miss);
     public static void PlayHazard() => I?.sfx?.PlayOneShot(I.hazard);
