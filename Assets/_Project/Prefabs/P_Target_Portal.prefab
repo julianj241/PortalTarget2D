@@ -18,7 +18,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &1089090070477860505
 Transform:
   m_ObjectHideFlags: 0
@@ -134,6 +134,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   scoreValue: 100
-  lifeSeconds: 2
+  lifeSeconds: 100
   softMissOnly: 0
   nextScene: Game_Scene2

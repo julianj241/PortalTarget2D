@@ -1,4 +1,4 @@
-// TargetSpawner.cs — simple, interleaved, no pooling
+// TargetSpawner.cs — simple, interleaved, no pooling (robust wave-end)
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -33,11 +33,10 @@ public class TargetSpawner : MonoBehaviour
 
     [Header("Optional global interval override (set by GameManager)")]
     [Tooltip("If > 0, this value overrides the wave's interval.")]
-    public float interval = -1f;   // your GameManager can set this; <=0 means 'use wave interval'
+    public float interval = -1f;   // <= 0 means 'use wave interval'
 
     void OnValidate()
     {
-        // Clamp silly values in editor to avoid instant bursts
         if (waves != null)
         {
             foreach (var w in waves)
@@ -45,7 +44,7 @@ public class TargetSpawner : MonoBehaviour
                 if (w != null)
                 {
                     w.interval = Mathf.Max(0.05f, w.interval);
-                    w.spawnJitter = Mathf.Clamp(w.spawnJitter, 0f, 1.0f);
+                    w.spawnJitter = Mathf.Clamp(w.spawnJitter, 0f, 1f);
                 }
             }
         }
@@ -72,7 +71,7 @@ public class TargetSpawner : MonoBehaviour
             yield break;
         }
 
-        // Build an interleaving bag: we’ll randomly pick which entry to spawn each time
+        // Build an interleaving bag
         var bag = new List<(SpawnEntry e, int remaining)>();
         foreach (var e in w.entries)
         {
@@ -89,17 +88,40 @@ public class TargetSpawner : MonoBehaviour
             yield break;
         }
 
+        Debug.Log($"[Spawner] Wave {waveIndex}: will spawn total {TotalCount(bag)} items across {bag.Count} entry types.");
+
+        // ----- Local alive counter for THIS wave -----
+        int aliveThisWave = 0;
+
         // Spawn loop (interleaves all entries)
         while (bag.Count > 0)
         {
             int i = Random.Range(0, bag.Count);
-            var (entry, remaining) = bag[i];
+            var tuple = bag[i];
+            var spawnEntry = tuple.e;
+            int remaining = tuple.remaining;
 
-            SpawnOne(entry);
+            var t = SpawnOne(spawnEntry);
+            if (t != null)
+            {
+                aliveThisWave++;
+
+                // Hook OnDespawn to BOTH: local counter and GameManager
+                t.OnDespawn = (target) =>
+                {
+                    aliveThisWave = Mathf.Max(0, aliveThisWave - 1);
+                    if (GameManager.I != null)
+                        GameManager.I.ActiveTargets = Mathf.Max(0, GameManager.I.ActiveTargets - 1);
+                };
+
+                if (GameManager.I != null) GameManager.I.ActiveTargets++;
+
+                Debug.Log($"[Spawner] Spawned {t.name} at {t.transform.position}");
+            }
 
             remaining--;
             if (remaining <= 0) bag.RemoveAt(i);
-            else bag[i] = (entry, remaining);
+            else bag[i] = (spawnEntry, remaining);
 
             // Compute wait using global override if set; else wave's own timing
             float baseInterval = (interval > 0f) ? interval : w.interval;
@@ -109,14 +131,31 @@ public class TargetSpawner : MonoBehaviour
             yield return new WaitForSeconds(wait);
         }
 
-        // Wait for all active targets to despawn before ending the wave
-        while (GameManager.I != null && GameManager.I.ActiveTargets > 0)
+        // If nothing spawned, end immediately
+        if (aliveThisWave <= 0)
+        {
+            Debug.Log($"[Spawner] Wave {waveIndex} spawned 0 targets; ending wave.");
+            yield break;
+        }
+
+        // Wait for all locally-tracked targets to despawn before ending the wave (with safety timeout)
+        float waveWaitStart = Time.realtimeSinceStartup;
+        while (aliveThisWave > 0)
+        {
+            if (Time.realtimeSinceStartup - waveWaitStart > 10f)
+            {
+                Debug.LogWarning("[TargetSpawner] Timeout waiting for wave targets to clear; forcing advance.");
+                aliveThisWave = 0;
+                break;
+            }
             yield return null;
+        }
     }
 
-    private void SpawnOne(SpawnEntry e)
+
+    private Target SpawnOne(SpawnEntry e)
     {
-        if (e.prefab == null) return;
+        if (e.prefab == null) return null;
 
         Vector3 pos = new Vector3(
             Random.Range(e.areaMin.x, e.areaMax.x),
@@ -127,17 +166,15 @@ public class TargetSpawner : MonoBehaviour
         // Instantiate a fresh target (no pooling for simplicity)
         var t = Instantiate(e.prefab, pos, Quaternion.identity);
 
-        // Hook despawn callback so GameManager.ActiveTargets stays accurate
-        t.OnDespawn = OnTargetDespawn;
-
-        if (GameManager.I != null)
-            GameManager.I.ActiveTargets++;
+        return t;
     }
 
-    private void OnTargetDespawn(Target t)
+    int TotalCount(List<(SpawnEntry e, int remaining)> b)
     {
-        if (GameManager.I != null)
-            GameManager.I.ActiveTargets--;
-        // target deactivates itself; nothing else needed
+        int sum = 0;
+        foreach (var it in b) sum += it.remaining;
+        return sum;
     }
+
+
 }
