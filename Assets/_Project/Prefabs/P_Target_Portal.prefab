@@ -136,4 +136,4 @@ MonoBehaviour:
   scoreValue: 100
   lifeSeconds: 100
   softMissOnly: 0
-  nextScene: Game_Scene2
+  nextScene: 
