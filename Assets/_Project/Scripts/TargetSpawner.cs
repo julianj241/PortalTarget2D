@@ -176,5 +176,13 @@ public class TargetSpawner : MonoBehaviour
         return sum;
     }
 
+    void OnDisable()
+    {
+        StopAllCoroutines();
+    }
 
+    void OnDestroy()
+    {
+        StopAllCoroutines();
+    }
 }

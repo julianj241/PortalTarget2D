@@ -26,6 +26,11 @@ public class GameManager : MonoBehaviour
     public int startingLives = 3;
     public float spawnAccelPerWave = 0.1f;  // only used if your spawner honors its global interval
 
+    // -------------------- Run control --------------------
+    private int sceneRunVersion = 0;
+    private Coroutine sceneRoutine;
+
+
     // -------- Portal reveal control (per-scene, set via SceneConfig) ----------
     [Header("Portal Reveal")]
     [SerializeField] private int revealPortalAfterWave = -1;     // -1 = after all waves; 1 = after wave 1; etc.
@@ -65,7 +70,6 @@ public class GameManager : MonoBehaviour
 
         ActiveTargets = 0;
 
-        // Reset portal state for the new scene
         portalRevealed = false;
         portalGO = null;
 
@@ -75,27 +79,35 @@ public class GameManager : MonoBehaviour
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
 
-        // Apply per-scene config first (may set portalGO/Prefab/nextSceneName)
         var cfg = Object.FindObjectOfType<SceneConfig>(true);
         ApplySceneConfig(cfg);
 
-        // ✅ Fallback: if still no portalGO, find a PortalTarget even if it's INACTIVE
         if (portalGO == null)
         {
-            var pt = Object.FindObjectOfType<PortalTarget>(true); // 'true' includes inactive
+            var pt = Object.FindObjectOfType<PortalTarget>(true);
             if (pt) portalGO = pt.gameObject;
         }
-
-        // (Optional) last-ditch: try active tagged portal (won’t find inactive)
         if (portalGO == null)
         {
             var taggedPortal = GameObject.FindWithTag("Portal");
             if (taggedPortal) portalGO = taggedPortal;
         }
 
+        // 🔒 Invalidate any prior run and stop its coroutine
+        sceneRunVersion++;
+        if (sceneRoutine != null)
+        {
+            StopCoroutine(sceneRoutine);
+            sceneRoutine = null;
+        }
+
         if (IsGameScene(sc.name))
-            StartCoroutine(RunScene());
+        {
+            // start a new, versioned run
+            sceneRoutine = StartCoroutine(RunScene(sceneRunVersion));
+        }
     }
+
 
 
     // -------------------- Scene helpers --------------------
@@ -150,48 +162,53 @@ public class GameManager : MonoBehaviour
     }
 
     // -------------------- Core loop ------------------------
-    IEnumerator RunScene()
+    IEnumerator RunScene(int myVersion)
     {
+        // If we changed scenes since this started, abort
+        if (myVersion != sceneRunVersion) yield break;
+
         var spawner = Object.FindObjectOfType<TargetSpawner>();
         if (spawner == null || spawner.waves == null || spawner.waves.Count == 0)
         {
             Debug.LogWarning("[GM] No spawner or no waves in this scene; revealing portal.");
             yield return new WaitForSecondsRealtime(0.2f);
-            RevealPortal();
+            if (myVersion == sceneRunVersion) RevealPortal();
             yield break;
         }
 
-        int wavesThisScene = spawner.waves.Count; // run exactly what's configured per scene
+        int wavesThisScene = spawner.waves.Count;
         Debug.Log($"[GM] {SceneManager.GetActiveScene().name}: Running {wavesThisScene} wave(s)");
 
         for (int i = 0; i < wavesThisScene; i++)
         {
+            if (myVersion != sceneRunVersion) yield break; // scene changed
+
             waveIndex = i + 1;
             UpdateUI();
             Debug.Log($"[GM] Starting Wave {waveIndex}");
             yield return spawner.RunWave(i);
             Debug.Log($"[GM] Finished Wave {waveIndex}. ActiveTargets={ActiveTargets}");
 
-            // Reveal portal after finishing a specific wave (if set via SceneConfig)
+            if (myVersion != sceneRunVersion) yield break;
+
             if (revealPortalAfterWave > 0 && waveIndex == revealPortalAfterWave)
             {
                 Debug.Log($"[GM] Wave {waveIndex} finished -> revealing portal per SceneConfig.");
                 yield return new WaitForSecondsRealtime(0.4f);
-                RevealPortal();
+                if (myVersion == sceneRunVersion) RevealPortal();
             }
 
-            // Optional: adjust spawner's global override pacing
             if (spawner.interval > 0f)
                 spawner.interval = Mathf.Max(0.05f, spawner.interval * (1f - spawnAccelPerWave));
         }
 
-        // If not revealed mid-run, reveal after all waves
         if (revealPortalAfterWave <= 0)
         {
             yield return new WaitForSecondsRealtime(0.4f);
-            RevealPortal();
+            if (myVersion == sceneRunVersion) RevealPortal();
         }
     }
+
 
     // -------------------- Scoring & state ------------------
     public void RegisterHit(int baseScore, bool accurate)
@@ -327,4 +344,24 @@ public class GameManager : MonoBehaviour
 
         Debug.LogWarning("[GM] No portalGO, no Portal tag in scene, and no portalPrefab set. Cannot reveal portal.");
     }
+
+    public void AbortAllGameplay()
+    {
+        // Invalidate current run and stop its coroutine
+        sceneRunVersion++;
+        if (sceneRoutine != null)
+        {
+            StopCoroutine(sceneRoutine);
+            sceneRoutine = null;
+        }
+
+        // Hide/kill any leftover targets in the current scene (belt & suspenders)
+        var leftovers = Object.FindObjectsOfType<Target>(true);
+        foreach (var t in leftovers)
+        {
+            if (t) t.gameObject.SetActive(false);
+        }
+        ActiveTargets = 0;
+    }
+
 }
