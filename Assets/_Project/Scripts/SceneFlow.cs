@@ -7,7 +7,7 @@ public static class SceneFlow
     {
         Time.timeScale = 1f;
 
-        // 🔴 Ensure no gameplay coroutines survive the hop
+        // make sure gameplay coroutines are stopped between scenes
         if (GameManager.I != null)
             GameManager.I.AbortAllGameplay();
 
